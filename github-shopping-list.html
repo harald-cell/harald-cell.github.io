@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Our Shopping List 🛒</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 500px;
+            width: 100%;
+            padding: 30px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 25px;
+            font-size: 14px;
+        }
+
+        .add-form {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .add-form input {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        .add-form input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background: #5568d3;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .refresh-btn {
+            background: #17a2b8;
+            width: 100%;
+            margin-bottom: 15px;
+        }
+
+        .refresh-btn:hover {
+            background: #138496;
+        }
+
+        .shopping-list {
+            list-style: none;
+        }
+
+        .shopping-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            transition: transform 0.2s;
+        }
+
+        .shopping-item:hover {
+            transform: translateX(5px);
+        }
+
+        .item-content {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex: 1;
+        }
+
+        .item-text {
+            color: #333;
+            font-size: 16px;
+        }
+
+        .item-meta {
+            font-size: 11px;
+            color: #999;
+            margin-top: 4px;
+        }
+
+        .delete-btn {
+            background: #dc3545;
+            padding: 8px 12px;
+            font-size: 12px;
+        }
+
+        .delete-btn:hover {
+            background: #c82333;
+        }
+
+        .status {
+            text-align: center;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 13px;
+        }
+
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: #999;
+            padding: 40px 20px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛒 Our Shopping List</h1>
+        <p class="subtitle">Shared between us ❤️</p>
+
+        <div id="status" class="status hidden"></div>
+        
+        <button class="refresh-btn" onclick="loadItems()">🔄 Refresh List</button>
+
+        <div class="add-form">
+            <input type="text" id="itemInput" placeholder="Add item..." onkeypress="if(event.key==='Enter') addItem()">
+            <button onclick="addItem()">Add</button>
+        </div>
+
+        <ul id="shoppingList" class="shopping-list"></ul>
+    </div>
+
+    <script>
+        // CONFIGURATION - Replace these with your actual values
+        const CONFIG = {
+            owner: 'YOUR_GITHUB_USERNAME',      // e.g., 'johnsmith'
+            repo: 'YOUR_REPOSITORY_NAME',       // e.g., 'shopping-list'
+            token: 'YOUR_GITHUB_TOKEN'          // e.g., 'ghp_xxxxxxxxxxxx'
+        };
+
+        const FILE_PATH = 'shopping-list.json';
+        let fileSha = null;
+
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+            status.classList.remove('hidden');
+            setTimeout(() => status.classList.add('hidden'), 3000);
+        }
+
+        async function initializeApp() {
+            showStatus('Loading...', 'info');
+            
+            try {
+                const exists = await checkFileExists();
+                if (!exists) {
+                    await createFile([]);
+                    showStatus('Created new shopping list!', 'success');
+                }
+                await loadItems();
+            } catch (error) {
+                showStatus('Error: ' + error.message, 'error');
+            }
+        }
+
+        async function checkFileExists() {
+            try {
+                const response = await fetch(
+                    `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${FILE_PATH}`,
+                    {
+                        headers: {
+                            'Authorization': `token ${CONFIG.token}`,
+                            'Accept': 'application/vnd.github.v3+json'
+                        }
+                    }
+                );
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    fileSha = data.sha;
+                    return true;
+                }
+                return false;
+            } catch (error) {
+                return false;
+            }
+        }
+
+        async function createFile(items) {
+            const content = btoa(unescape(encodeURIComponent(JSON.stringify(items, null, 2))));
+            
+            const response = await fetch(
+                `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${FILE_PATH}`,
+                {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `token ${CONFIG.token}`,
+                        'Accept': 'application/vnd.github.v3+json',
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        message: 'Create shopping list',
+                        content: content
+                    })
+                }
+            );
+
+            if (!response.ok) throw new Error('Failed to create file');
+            
+            const data = await response.json();
+            fileSha = data.content.sha;
+        }
+
+        async function loadItems() {
+            try {
+                const response = await fetch(
+                    `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${FILE_PATH}`,
+                    {
+                        headers: {
+                            'Authorization': `token ${CONFIG.token}`,
+                            'Accept': 'application/vnd.github.v3+json'
+                        }
+                    }
+                );
+
+                if (!response.ok) throw new Error('Failed to load items');
+
+                const data = await response.json();
+                fileSha = data.sha;
+                
+                const content = decodeURIComponent(escape(atob(data.content)));
+                const items = JSON.parse(content);
+                
+                renderItems(items);
+                showStatus('List updated!', 'success');
+            } catch (error) {
+                showStatus('Error loading: ' + error.message, 'error');
+            }
+        }
+
+        function renderItems(items) {
+            const list = document.getElementById('shoppingList');
+            list.innerHTML = '';
+
+            if (items.length === 0) {
+                list.innerHTML = '<div class="empty-state">🛍️<br>No items yet.<br>Add your first item!</div>';
+                return;
+            }
+
+            items.forEach((item, index) => {
+                const li = document.createElement('li');
+                li.className = 'shopping-item';
+                li.innerHTML = `
+                    <div class="item-content">
+                        <div>
+                            <div class="item-text">${escapeHtml(item.name)}</div>
+                            <div class="item-meta">Added ${new Date(item.timestamp).toLocaleString()}</div>
+                        </div>
+                    </div>
+                    <button class="delete-btn" onclick="deleteItem(${index})">Delete</button>
+                `;
+                list.appendChild(li);
+            });
+        }
+
+        async function addItem() {
+            const input = document.getElementById('itemInput');
+            const itemName = input.value.trim();
+
+            if (!itemName) return;
+
+            try {
+                const response = await fetch(
+                    `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${FILE_PATH}`,
+                    {
+                        headers: {
+                            'Authorization': `token ${CONFIG.token}`,
+                            'Accept': 'application/vnd.github.v3+json'
+                        }
+                    }
+                );
+
+                const data = await response.json();
+                const content = decodeURIComponent(escape(atob(data.content)));
+                const items = JSON.parse(content);
+
+                items.push({
+                    name: itemName,
+                    timestamp: new Date().toISOString()
+                });
+
+                await saveItems(items);
+                input.value = '';
+                renderItems(items);
+                showStatus('Item added!', 'success');
+            } catch (error) {
+                showStatus('Error adding: ' + error.message, 'error');
+            }
+        }
+
+        async function deleteItem(index) {
+            try {
+                const response = await fetch(
+                    `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${FILE_PATH}`,
+                    {
+                        headers: {
+                            'Authorization': `token ${CONFIG.token}`,
+                            'Accept': 'application/vnd.github.v3+json'
+                        }
+                    }
+                );
+
+                const data = await response.json();
+                const content = decodeURIComponent(escape(atob(data.content)));
+                const items = JSON.parse(content);
+
+                items.splice(index, 1);
+
+                await saveItems(items);
+                renderItems(items);
+                showStatus('Item deleted!', 'success');
+            } catch (error) {
+                showStatus('Error deleting: ' + error.message, 'error');
+            }
+        }
+
+        async function saveItems(items) {
+            const content = btoa(unescape(encodeURIComponent(JSON.stringify(items, null, 2))));
+
+            const response = await fetch(
+                `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${FILE_PATH}`,
+                {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `token ${CONFIG.token}`,
+                        'Accept': 'application/vnd.github.v3+json',
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        message: 'Update shopping list',
+                        content: content,
+                        sha: fileSha
+                    })
+                }
+            );
+
+            if (!response.ok) throw new Error('Failed to save items');
+
+            const data = await response.json();
+            fileSha = data.content.sha;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Auto-load on page load
+        initializeApp();
+    </script>
+</body>
+</html>
