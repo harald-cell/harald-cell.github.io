@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="no">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Our Shopping List 🛒</title>
+    <title>Vår Handleliste 🛒</title>
     <style>
         * {
             margin: 0;
@@ -110,6 +110,11 @@
             transition: transform 0.2s;
         }
 
+        .shopping-item.expiring-soon {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+        }
+
         .shopping-item:hover {
             transform: translateX(5px);
         }
@@ -118,6 +123,32 @@
             display: flex;
             align-items: center;
             gap: 12px;
+            flex: 1;
+        }
+
+        .star-btn {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s;
+        }
+
+        .star-btn:hover {
+            transform: scale(1.2);
+        }
+
+        .star-btn.starred {
+            filter: drop-shadow(0 0 3px rgba(255, 193, 7, 0.6));
+        }
+
+        .item-details {
             flex: 1;
         }
 
@@ -130,6 +161,22 @@
             font-size: 11px;
             color: #999;
             margin-top: 4px;
+        }
+
+        .days-left {
+            font-size: 11px;
+            color: #666;
+            font-weight: 600;
+            margin-top: 2px;
+        }
+
+        .days-left.warning {
+            color: #ff6b6b;
+        }
+
+        .item-actions {
+            display: flex;
+            gap: 8px;
         }
 
         .delete-btn {
@@ -175,20 +222,34 @@
             padding: 40px 20px;
             font-size: 14px;
         }
+
+        .info-box {
+            background: #e7f3ff;
+            border-left: 4px solid #2196F3;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 12px;
+            color: #0c5460;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🛒 Our Shopping List</h1>
-        <p class="subtitle">Shared between us ❤️</p>
+        <h1>🛒 Vår Handleliste</h1>
+        <p class="subtitle">Delt mellom oss ❤️</p>
+
+        <div class="info-box">
+            ⭐ Stjernemarkerte varer beholdes. Andre slettes automatisk etter 7 dager.
+        </div>
 
         <div id="status" class="status hidden"></div>
         
-        <button class="refresh-btn" onclick="loadItems()">🔄 Refresh List</button>
+        <button class="refresh-btn" onclick="loadItems()">🔄 Oppdater Liste</button>
 
         <div class="add-form">
-            <input type="text" id="itemInput" placeholder="Add item..." onkeypress="if(event.key==='Enter') addItem()">
-            <button onclick="addItem()">Add</button>
+            <input type="text" id="itemInput" placeholder="Legg til vare..." onkeypress="if(event.key==='Enter') addItem()">
+            <button onclick="addItem()">Legg til</button>
         </div>
 
         <ul id="shoppingList" class="shopping-list"></ul>
@@ -203,6 +264,7 @@
         };
 
         const FILE_PATH = 'shopping-list.json';
+        const DAYS_UNTIL_DELETE = 7;
         let fileSha = null;
 
         function showStatus(message, type) {
@@ -213,18 +275,32 @@
             setTimeout(() => status.classList.add('hidden'), 3000);
         }
 
+        function getDaysLeft(timestamp) {
+            const added = new Date(timestamp);
+            const now = new Date();
+            const diffTime = now - added;
+            const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+            return DAYS_UNTIL_DELETE - diffDays;
+        }
+
+        function shouldDelete(item) {
+            if (item.starred) return false;
+            const daysLeft = getDaysLeft(item.timestamp);
+            return daysLeft < 0;
+        }
+
         async function initializeApp() {
-            showStatus('Loading...', 'info');
+            showStatus('Laster...', 'info');
             
             try {
                 const exists = await checkFileExists();
                 if (!exists) {
                     await createFile([]);
-                    showStatus('Created new shopping list!', 'success');
+                    showStatus('Opprettet ny handleliste!', 'success');
                 }
                 await loadItems();
             } catch (error) {
-                showStatus('Error: ' + error.message, 'error');
+                showStatus('Feil: ' + error.message, 'error');
             }
         }
 
@@ -264,13 +340,13 @@
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        message: 'Create shopping list',
+                        message: 'Opprett handleliste',
                         content: content
                     })
                 }
             );
 
-            if (!response.ok) throw new Error('Failed to create file');
+            if (!response.ok) throw new Error('Kunne ikke opprette fil');
             
             const data = await response.json();
             fileSha = data.content.sha;
@@ -288,18 +364,30 @@
                     }
                 );
 
-                if (!response.ok) throw new Error('Failed to load items');
+                if (!response.ok) throw new Error('Kunne ikke laste varer');
 
                 const data = await response.json();
                 fileSha = data.sha;
                 
                 const content = decodeURIComponent(escape(atob(data.content)));
-                const items = JSON.parse(content);
+                let items = JSON.parse(content);
+                
+                // Remove expired items
+                const originalLength = items.length;
+                items = items.filter(item => !shouldDelete(item));
+                
+                // Save if items were deleted
+                if (items.length < originalLength) {
+                    await saveItems(items);
+                    showStatus(`${originalLength - items.length} utgåtte varer slettet automatisk`, 'info');
+                }
                 
                 renderItems(items);
-                showStatus('List updated!', 'success');
+                if (items.length === originalLength) {
+                    showStatus('Liste oppdatert!', 'success');
+                }
             } catch (error) {
-                showStatus('Error loading: ' + error.message, 'error');
+                showStatus('Feil ved lasting: ' + error.message, 'error');
             }
         }
 
@@ -308,21 +396,40 @@
             list.innerHTML = '';
 
             if (items.length === 0) {
-                list.innerHTML = '<div class="empty-state">🛍️<br>No items yet.<br>Add your first item!</div>';
+                list.innerHTML = '<div class="empty-state">🛍️<br>Ingen varer ennå.<br>Legg til din første vare!</div>';
                 return;
             }
 
             items.forEach((item, index) => {
+                const daysLeft = getDaysLeft(item.timestamp);
+                const isExpiringSoon = !item.starred && daysLeft <= 2;
+                const addedDate = new Date(item.timestamp);
+                
+                let daysLeftText = '';
+                if (!item.starred) {
+                    if (daysLeft > 0) {
+                        daysLeftText = `<div class="days-left ${daysLeft <= 2 ? 'warning' : ''}">${daysLeft} dag${daysLeft !== 1 ? 'er' : ''} igjen</div>`;
+                    } else {
+                        daysLeftText = '<div class="days-left warning">Utgått</div>';
+                    }
+                }
+
                 const li = document.createElement('li');
-                li.className = 'shopping-item';
+                li.className = `shopping-item ${isExpiringSoon ? 'expiring-soon' : ''}`;
                 li.innerHTML = `
                     <div class="item-content">
-                        <div>
+                        <button class="star-btn ${item.starred ? 'starred' : ''}" onclick="toggleStar(${index})">
+                            ${item.starred ? '⭐' : '☆'}
+                        </button>
+                        <div class="item-details">
                             <div class="item-text">${escapeHtml(item.name)}</div>
-                            <div class="item-meta">Added ${new Date(item.timestamp).toLocaleString()}</div>
+                            <div class="item-meta">Lagt til ${addedDate.toLocaleDateString('nb-NO', { day: 'numeric', month: 'short', year: 'numeric' })} kl. ${addedDate.toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' })}</div>
+                            ${daysLeftText}
                         </div>
                     </div>
-                    <button class="delete-btn" onclick="deleteItem(${index})">Delete</button>
+                    <div class="item-actions">
+                        <button class="delete-btn" onclick="deleteItem(${index})">Slett</button>
+                    </div>
                 `;
                 list.appendChild(li);
             });
@@ -351,15 +458,42 @@
 
                 items.push({
                     name: itemName,
-                    timestamp: new Date().toISOString()
+                    timestamp: new Date().toISOString(),
+                    starred: false
                 });
 
                 await saveItems(items);
                 input.value = '';
                 renderItems(items);
-                showStatus('Item added!', 'success');
+                showStatus('Vare lagt til!', 'success');
             } catch (error) {
-                showStatus('Error adding: ' + error.message, 'error');
+                showStatus('Feil ved tillegging: ' + error.message, 'error');
+            }
+        }
+
+        async function toggleStar(index) {
+            try {
+                const response = await fetch(
+                    `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${FILE_PATH}`,
+                    {
+                        headers: {
+                            'Authorization': `token ${CONFIG.token}`,
+                            'Accept': 'application/vnd.github.v3+json'
+                        }
+                    }
+                );
+
+                const data = await response.json();
+                const content = decodeURIComponent(escape(atob(data.content)));
+                const items = JSON.parse(content);
+
+                items[index].starred = !items[index].starred;
+
+                await saveItems(items);
+                renderItems(items);
+                showStatus(items[index].starred ? '⭐ Stjernemarkert!' : 'Stjerne fjernet', 'success');
+            } catch (error) {
+                showStatus('Feil: ' + error.message, 'error');
             }
         }
 
@@ -383,9 +517,9 @@
 
                 await saveItems(items);
                 renderItems(items);
-                showStatus('Item deleted!', 'success');
+                showStatus('Vare slettet!', 'success');
             } catch (error) {
-                showStatus('Error deleting: ' + error.message, 'error');
+                showStatus('Feil ved sletting: ' + error.message, 'error');
             }
         }
 
@@ -402,14 +536,14 @@
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        message: 'Update shopping list',
+                        message: 'Oppdater handleliste',
                         content: content,
                         sha: fileSha
                     })
                 }
             );
 
-            if (!response.ok) throw new Error('Failed to save items');
+            if (!response.ok) throw new Error('Kunne ikke lagre varer');
 
             const data = await response.json();
             fileSha = data.content.sha;
